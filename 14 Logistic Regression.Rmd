@@ -267,6 +267,20 @@ fit |>
   accuracy(truth = top_selling, estimate = .pred_class)
 ```
 
+Compute model accuracy with a custom threshold.
+
+```{r}
+threshold <- 0.6
+
+# Compute model accuracy.
+fit |> 
+  predict(new_data = soup_testing, type = "prob") |>
+  bind_cols(soup_testing) |>
+  mutate(pred_y = if_else(.pred_1 >= threshold, 1, 0) |> factor()) |>
+  accuracy(truth = top_selling, estimate = pred_y)
+```
+
+
 ---
 
 Accuracy can also be summarized using a **confusion matrix**.
