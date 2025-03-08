@@ -262,10 +262,12 @@ Instead of RMSE, we will compute the **accuracy** of the logistic regression. On
 ```{r}
 # Compute model accuracy.
 fit |> 
-  predict(new_data = soup_testing, opts = list(threshold = 0.3))|>
+  predict(new_data = soup_testing)|>
   bind_cols(soup_testing) |>
   accuracy(truth = top_selling, estimate = .pred_class)
 ```
+
+--- 
 
 Compute model accuracy with a custom threshold.
 
@@ -279,7 +281,6 @@ fit |>
   mutate(pred_y = if_else(.pred_1 >= threshold, 1, 0) |> factor()) |>
   accuracy(truth = top_selling, estimate = pred_y)
 ```
-
 
 ---
 
