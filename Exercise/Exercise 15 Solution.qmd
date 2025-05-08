@@ -1,0 +1,161 @@
+---
+title: "Exercise 15"
+author: "Marc Dotson"
+format: docx
+---
+
+Return one last time to `soup_data` and the models from the previous exercises.
+
+1. Create a discrete outcome variable `top_selling` based on `Sales > 375000` using `if_else()` and `factor()`.
+2. Preprocess the data using `initial_time_split()` with just 75% of the data in training and fit the same models again using the preprocessed training data, now as logistic regressions with the new `top_selling` variable as the outcome variable. You can ignore any warnings when fitting each model.
+3. Compute the accuracy using the preprocessed testing data. Is the same model as last time the best-fitting model again?
+4. Compute a confusion matrix for the best-fitting model and accurately interpret it.
+5. Render the Quarto document into Word and upload to Canvas.
+
+**Five points total, one point each for:**
+
+- **Creating top_selling as specified.**
+- **Preprocessing the data and fitting logistic regressions with top_selling as the outcome.**
+- **Computing the accuracy using the preprocessed testing data and answering the question about how the best-fitting model compares to the previous exercise.**
+- **Computing a confusion matrix and interpreting it.**
+- **One point for submitting a rendered Word document.**
+
+## Create a Discrete Outcome Variable
+
+Let's load the packages we'll need, import the data, and create a discrete outcome variable as specified.
+
+```{r}
+# Load packages.
+library(tidyverse)
+library(tidymodels)
+
+# Import, filter, and mutate data.
+soup_data <- read_csv(here::here("Data", "soup_data.csv")) |> 
+  filter(Retailer_Trade_Areas == "WEST CENSUS TA", Brand_High == "CAMPBELL'S") |>
+  mutate(top_selling = if_else(Sales > 375000, 1, 0) |> factor())
+```
+
+Clearly we need to preprocess these variables by applying the log transform.
+
+## Preprocess Data
+
+Let's split the data, prepare a recipe using the training data, and apply it to both the training and testing data.
+
+```{r}
+# Split the data.
+soup_split <- initial_time_split(soup_data, prop = 0.75)
+
+# Prepare a recipe.
+soup_recipe <- training(soup_split) |> 
+  recipe(top_selling ~ Any_Disp_Spend + Any_Feat_Spend + Any_Price_Decr_Spend) |> 
+  step_log(all_numeric(), offset = 1) |> 
+  prep()
+
+# Apply the recipe to the training data.
+soup_training <- soup_recipe |>
+  bake(training(soup_split))
+
+# Apply the recipe to the testing data.
+soup_testing <- soup_recipe |>
+  bake(testing(soup_split))
+```
+
+## Fit the Models
+
+Now let's refit the models we ran previously, now using the preprocessed training data and `top_selling` as the outcome.
+
+```{r}
+# Full model.
+fit_01 <- logistic_reg() |> 
+  set_engine(engine = "glm") |> 
+  fit(
+    top_selling ~ Any_Disp_Spend + Any_Feat_Spend + Any_Price_Decr_Spend, 
+    data = soup_training
+  )
+
+# Model without display spend.
+fit_02 <- logistic_reg() |> 
+  set_engine(engine = "glm") |> 
+  fit(
+    top_selling ~ Any_Feat_Spend + Any_Price_Decr_Spend, 
+    data = soup_training
+  )
+
+# Model without feature spend.
+fit_03 <- logistic_reg() |> 
+  set_engine(engine = "glm") |> 
+  fit(
+    top_selling ~ Any_Disp_Spend + Any_Price_Decr_Spend, 
+    data = soup_training
+  )
+
+# Model without price decrease spend.
+fit_04 <- logistic_reg() |> 
+  set_engine(engine = "glm") |> 
+  fit(
+    top_selling ~ Any_Disp_Spend + Any_Feat_Spend, 
+    data = soup_training
+  )
+```
+
+## Compute Predictive Fit
+
+Now let's compute and compare accuracy using the preprocessed testing data.
+
+```{r}
+# Compute accuracy.
+accuracy_01 <- fit_01 |> 
+  predict(new_data = soup_testing) |>
+  bind_cols(soup_testing) |>
+  accuracy(truth = top_selling, estimate = .pred_class)
+
+accuracy_02 <- fit_02 |> 
+  predict(new_data = soup_testing) |>
+  bind_cols(soup_testing) |>
+  accuracy(truth = top_selling, estimate = .pred_class)
+
+accuracy_03 <- fit_03 |> 
+  predict(new_data = soup_testing) |>
+  bind_cols(soup_testing) |>
+  accuracy(truth = top_selling, estimate = .pred_class)
+
+accuracy_04 <- fit_04 |> 
+  predict(new_data = soup_testing) |>
+  bind_cols(soup_testing) |>
+  accuracy(truth = top_selling, estimate = .pred_class)
+
+# Compare accuracy.
+tibble(
+  model = c(
+    "Full model", 
+    "Model without display spend", 
+    "Model without feature spend", 
+    "Model without price decrease spend"
+  )
+) |> 
+  bind_cols(
+    bind_rows(
+      accuracy_01,
+      accuracy_02,
+      accuracy_03,
+      accuracy_04
+    )
+  ) |> 
+  arrange(desc(.estimate))
+```
+
+Based on accuracy, the best-fitting model is the full model or the model without feature spend. When it was `Sales` as the outcome, the model without price decrease spend was the best-fitting model.
+
+## Create a Confusion Matrix
+
+I'll use the full model to create a confusion matrix.
+
+```{r}
+fit_01 |> 
+  predict(new_data = soup_testing) |>
+  bind_cols(soup_testing) |>
+  conf_mat(truth = top_selling, estimate = .pred_class)
+```
+
+This confusion matrix shows that we have *perfect* classification with this model. The diagonal shows the correct predictions. The off-diagonal shows where we've predicted incorrectly -- which here is 0.
+

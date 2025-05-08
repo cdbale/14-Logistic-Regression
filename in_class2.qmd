@@ -1,0 +1,153 @@
+---
+title: "Logistic Regression"
+format: docx
+editor: visual
+---
+
+Load packages.
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+Simulate data from a logistic regression model.
+
+```{r}
+set.seed(42)    # Set the randomization seed.
+n <- 500        # Number of observations.
+beta0 <- -1.30  # Intercept parameter.
+beta1 <- 0.25   # Slope parameter for promotion spend.
+beta2 <- 1.20   # Slope parameter for cold region.
+
+# Simulate data.
+sim_data <- tibble(
+  x1 = runif(n, min = 0, max = 10),
+  x2 = rbinom(n, size = 1, prob = 0.30),
+  prob_y = exp(beta0 + beta1 * x1 + beta2 * x2) / 
+    (1 + exp(beta0 + beta1 * x1 + beta2 * x2)),
+  y = rbinom(n, size = 1, prob = prob_y) |> factor()
+)
+```
+
+Fit model, and verify that it recovers the correct parameter values.
+
+```{r}
+# Fit a logistic regression.
+sim_fit <- logistic_reg() |> 
+  set_engine(engine = "glm") |> 
+  fit(y ~ x1 + x2, data = sim_data)
+
+# Tidy output.
+tidy(sim_fit, conf.int = TRUE)
+```
+
+# Preprocessing
+
+```{r}
+# Import soup data.
+soup_data <- read_csv(here::here("Data", "soup_data.csv")) |> 
+  mutate(top_selling = if_else(Sales > 20000, 1, 0) |> factor())
+
+# Split data.
+soup_split <- initial_time_split(soup_data, prop = 0.90)
+```
+
+Create recipe and apply to training and testing data.
+
+```{r}
+# Prepare a preprocessing recipe.
+soup_recipe <- training(soup_split) |> 
+  recipe(top_selling ~ Any_Price_Decr_Spend + Retailer_Trade_Areas) |> 
+  step_log(all_numeric(), offset = 1) |> 
+  step_dummy(Retailer_Trade_Areas) |> 
+  prep()
+
+# Apply the recipe to the training and testing data.
+soup_training <- soup_recipe |>
+  bake(training(soup_split))
+
+soup_testing <- soup_recipe |>
+  bake(testing(soup_split))
+```
+
+Fit model to training data.
+
+```{r}
+# Fit a logistic regression.
+fit <- logistic_reg() |> 
+  set_engine("glm") |> 
+  fit(top_selling ~ ., data = soup_training)
+```
+
+Plot point estimates and confidence intervals.
+
+```{r}
+# Compare parameter estimates.
+tidy(fit, conf.int = TRUE) |> 
+  ggplot(aes(y = term)) + 
+  geom_point(aes(x = estimate)) + 
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = .1) +
+  geom_vline(xintercept = 0, color = "red")
+```
+
+Get probability interpretation of coefficients.
+
+```{r}
+# Interpreting the parameter estimates as probabilities.
+tidy(fit, conf.int = TRUE) |> 
+  mutate(
+    estimate = plogis(estimate),
+    conf.low = plogis(conf.low),
+    conf.high = plogis(conf.high)
+  )
+```
+
+Create counterfactuals.
+
+```{r}
+# Column names, type, and preprocessing needs to match the recipe.
+scenarios <- tibble(
+  # generate spend on price decreases using 4 values from 0 to 10,000
+  # repeat those spend values 4 times, one repetition for each trade area
+  Any_Price_Decr_Spend = seq(from = 0, to = 10000, by = 10000 / 3) |> rep(4),
+  # generate the trade areas, repeat 4 times for each value of spend on price decreases
+  Retailer_Trade_Areas = unique(soup_data$Retailer_Trade_Areas) |> rep(4) |> sort(),
+  top_selling = factor(1)
+)
+```
+
+
+Apply recipe to counterfactual data.
+
+```{r}
+# Apply the recipe to the training data.
+scenarios <- soup_recipe |>
+  bake(scenarios) |> 
+  select(-top_selling)
+
+scenarios
+```
+
+Generate predicted probabilities.
+
+```{r}
+# Predict success (no prediction intervals).
+counterfactual_predictions <- predict(fit, new_data = scenarios, type = "prob") |> 
+  bind_cols(scenarios) |> 
+  mutate(Any_Price_Decr_Spend = exp(Any_Price_Decr_Spend)) |> 
+  arrange(desc(.pred_1)) 
+```
+
+Test different thresholds.
+
+```{r}
+threshold <- 0.9
+
+counterfactual_predictions |>
+  mutate(pred_y = if_else(.pred_1 > threshold, 1, 0)) |>
+  select(pred_y, .pred_0, .pred_1)
+
+
+```
+
